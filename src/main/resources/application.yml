@@ -1,0 +1,52 @@
+# Application Configuration
+app:
+  mode: online # Toggle between online and offline modes
+
+# News API Configuration
+news:
+  api:
+    url: https://newsapi.org/v2/everything?q={keyword}&apiKey={apiKey}
+    key: ptrxCxhZy2z8PR6/sxgAAr9f5YODDyNQnbU1POWPBsKoxl8MRk1HDqsOf36aoNmU
+    secret-key: 1234567890123456
+
+
+jasypt:
+  encryptor:
+    password: ${JASYPT_ENCRYPTOR_PASSWORD}
+
+# Server Configuration
+server:
+    port: 8080
+
+# Spring Boot Actuator Configuration
+management:
+    endpoints:
+          web:
+            exposure:
+                include: "*" # Expose all actuator endpoints
+
+# Cache Configuration
+spring:
+  profiles:
+    include: swagger
+  cache:
+     type: simple
+     cache-names: articles
+  thymeleaf:
+    cache: false  # Disable Thymeleaf cache for development
+
+# Logging Configuration
+logging:
+    level:
+        root: INFO
+        com.example.newssearch: DEBUG
+
+spring-doc:
+  swagger-ui:
+    enabled: true
+    doc-expansion: none
+    tags-sorter: alpha
+    operations-sorter: alpha
+    display-operation-id: true
+  api-docs:
+    enabled: true
