@@ -3,9 +3,11 @@ package com.demo.newsApp.controller;
 import com.demo.newsApp.config.AppConfig;
 import com.demo.newsApp.exception.InvalidKeywordException;
 import com.demo.newsApp.model.Article;
+import com.demo.newsApp.model.ErrorResponse;
 import com.demo.newsApp.model.NewsResponse;
 import com.demo.newsApp.model.Unit;
 import com.demo.newsApp.services.NewsService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,91 +39,82 @@ public class NewsControllerTests {
     @Value("${offline.mode:false}")
     private boolean offlineMode;
 
+    @Mock
+    private HttpServletRequest request;
 
+    // Test for searchNews - Valid Keyword
     @Test
     public void searchNews_shouldReturnNewsResponse() {
-        // Arrange
         String keyword = "validKeyword";
         NewsResponse expectedResponse = new NewsResponse("ok", 10, List.of(new Article()));
         when(newsService.getNews(keyword)).thenReturn(expectedResponse);
 
-        // Act
-        ResponseEntity<NewsResponse> response = newsController.searchNews(keyword);
+        ResponseEntity<NewsResponse> response = (ResponseEntity<NewsResponse>) newsController.searchNews(keyword, request);
 
-        // Assert
         assertEquals(200, response.getStatusCodeValue());
         assertEquals(expectedResponse, response.getBody());
-        verify(newsService).getNews(keyword); // Verify the service was called
+        verify(newsService).getNews(keyword);
     }
 
+    // Test for searchNews - Invalid Keyword Exception
     @Test
-    public void searchNews_shouldThrowInvalidKeywordException() {
-        // Arrange
+    public void searchNews_shouldHandleInvalidKeywordException() {
         String keyword = "invalid!";
         when(newsService.getNews(keyword)).thenThrow(new InvalidKeywordException("Invalid keyword"));
 
-        // Act & Assert
-        InvalidKeywordException exception = assertThrows(InvalidKeywordException.class, () -> {
-            newsController.searchNews(keyword);
-        });
+        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.searchNews(keyword, request);
 
-        assertEquals("Invalid keyword", exception.getMessage());
-        verify(newsService).getNews(keyword); // Verify the service was called
+        assertEquals(400, response.getStatusCodeValue());
+        assertEquals("Invalid Keyword", response.getBody().getError());
+        verify(newsService).getNews(keyword);
     }
 
-
+    // Test for searchNews - Unexpected Exception
     @Test
-    public void searchNews_shouldThrowUnexpectedException() {
-        // Arrange
+    public void searchNews_shouldHandleUnexpectedException() {
         String keyword = "validKeyword";
         when(newsService.getNews(keyword)).thenThrow(new RuntimeException("Unexpected error"));
 
-        // Act & Assert
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            newsController.searchNews(keyword);
-        });
+        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.searchNews(keyword, request);
 
-        assertEquals("Unexpected error", exception.getMessage());
-        verify(newsService).getNews(keyword); // Verify the service was called
+        assertEquals(500, response.getStatusCodeValue());
+        assertEquals("Internal Server Error", response.getBody().getError());
+        verify(newsService).getNews(keyword);
     }
 
+    // Test for toggleMode - Set to Online
     @Test
     public void toggleMode_shouldSetModeToOnline() {
-        // Act
-        ResponseEntity<String> response = newsController.toggleMode("online");
+        ResponseEntity<String> response = (ResponseEntity<String>) newsController.toggleMode("online", request);
 
-        // Assert
         assertEquals(200, response.getStatusCodeValue());
-        assertEquals("Mode set to: online", response.getBody());
-        verify(appConfig).setMode("online"); // Verify the mode was set
+        assertEquals("Mode successfully set to: online", response.getBody());
+        verify(appConfig).setMode("online");
     }
 
+    // Test for toggleMode - Set to Offline
     @Test
     public void toggleMode_shouldSetModeToOffline() {
-        // Act
-        ResponseEntity<String> response = newsController.toggleMode("offline");
+        ResponseEntity<String> response = (ResponseEntity<String>) newsController.toggleMode("offline", request);
 
-        // Assert
         assertEquals(200, response.getStatusCodeValue());
-        assertEquals("Mode set to: offline", response.getBody());
-        verify(appConfig).setMode("offline"); // Verify the mode was set
+        assertEquals("Mode successfully set to: offline", response.getBody());
+        verify(appConfig).setMode("offline");
     }
 
+    // Test for toggleMode - Invalid Mode
     @Test
     public void toggleMode_shouldReturnBadRequestForInvalidMode() {
-        // Act
-        ResponseEntity<String> response = newsController.toggleMode("invalid");
+        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.toggleMode("invalid", request);
 
-        // Assert
         assertEquals(400, response.getStatusCodeValue());
-        assertEquals("Invalid mode. Use 'online' or 'offline'.", response.getBody());
-        verify(appConfig, never()).setMode(anyString()); // Verify the mode was not set
+        assertEquals("Invalid mode. Use 'online' or 'offline'.", response.getBody().getMessage());
+        verify(appConfig, never()).setMode(anyString());
     }
 
-
+    // Test for getGroupedNews - Valid Input
     @Test
     public void getGroupedNews_shouldReturnGroupedArticles() {
-        // Arrange
         String keyword = "validKeyword";
         int interval = 12;
         Unit unit = Unit.HOURS;
@@ -130,19 +123,17 @@ public class NewsControllerTests {
 
         when(newsService.getGroupedNews(keyword, interval, unit.getValue())).thenReturn(groupedArticles);
 
-        // Act
-        ResponseEntity<EntityModel<Map<String, Object>>> response = newsController.getGroupedNews(keyword, interval, unit);
+        ResponseEntity<EntityModel<Map<String, Object>>> response = (ResponseEntity<EntityModel<Map<String, Object>>>) newsController.getGroupedNews(keyword, interval, unit,request);
 
-        // Assert
         assertEquals(200, response.getStatusCodeValue());
         assertNotNull(response.getBody());
         assertEquals(groupedArticles, response.getBody().getContent());
-        verify(newsService).getGroupedNews(keyword, interval, unit.getValue()); // Verify the service was called
+        verify(newsService).getGroupedNews(keyword, interval, unit.getValue());
     }
 
+    // Test for getGroupedNews - Invalid Keyword Exception
     @Test
-    public void getGroupedNews_shouldThrowInvalidKeywordException() {
-        // Arrange
+    public void getGroupedNews_shouldHandleInvalidKeywordException() {
         String keyword = "invalid!";
         int interval = 12;
         Unit unit = Unit.HOURS;
@@ -150,18 +141,16 @@ public class NewsControllerTests {
         when(newsService.getGroupedNews(keyword, interval, unit.getValue()))
                 .thenThrow(new InvalidKeywordException("Invalid keyword"));
 
-        // Act & Assert
-        InvalidKeywordException exception = assertThrows(InvalidKeywordException.class, () -> {
-            newsController.getGroupedNews(keyword, interval, unit);
-        });
+        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.getGroupedNews(keyword, interval, unit,request);
 
-        assertEquals("Invalid keyword", exception.getMessage());
-        verify(newsService).getGroupedNews(keyword, interval, unit.getValue()); // Verify the service was called
+        assertEquals(400, response.getStatusCodeValue());
+        assertEquals("Invalid Keyword", response.getBody().getError());
+        verify(newsService).getGroupedNews(keyword, interval, unit.getValue());
     }
 
+    // Test for getGroupedNews - Unexpected Exception
     @Test
-    public void getGroupedNews_shouldThrowUnexpectedException() {
-        // Arrange
+    public void getGroupedNews_shouldHandleUnexpectedException() {
         String keyword = "validKeyword";
         int interval = 12;
         Unit unit = Unit.HOURS;
@@ -169,13 +158,10 @@ public class NewsControllerTests {
         when(newsService.getGroupedNews(keyword, interval, unit.getValue()))
                 .thenThrow(new RuntimeException("Unexpected error"));
 
-        // Act & Assert
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            newsController.getGroupedNews(keyword, interval, unit);
-        });
+        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.getGroupedNews(keyword, interval, unit,request);
 
-        assertEquals("Unexpected error", exception.getMessage());
-        verify(newsService).getGroupedNews(keyword, interval, unit.getValue()); // Verify the service was called
+        assertEquals(500, response.getStatusCodeValue());
+        assertEquals("Internal Server Error", response.getBody().getError());
+        verify(newsService).getGroupedNews(keyword, interval, unit.getValue());
     }
-
 }

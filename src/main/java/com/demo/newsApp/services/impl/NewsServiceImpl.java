@@ -1,6 +1,5 @@
 package com.demo.newsApp.services.impl;
 
-import ch.qos.logback.core.util.StringUtil;
 import com.demo.newsApp.exception.InvalidKeywordException;
 import com.demo.newsApp.exception.NoContentException;
 import com.demo.newsApp.model.Article;
@@ -23,80 +22,79 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @Log4j2
 public class NewsServiceImpl implements NewsService {
 
-    private final String NEWS_API_URL;
+    private final String newsApiUrl;
     private final AesConfig aesConfig;
     private final AppConfig appConfig;
-
     private final RestTemplate restTemplate;
 
-    public NewsServiceImpl(@Value("${news.api.url}") String NEWS_API_URL, AesConfig aesConfig, AppConfig appConfig, RestTemplate restTemplate) {
-        this.NEWS_API_URL = NEWS_API_URL;
+    public NewsServiceImpl(@Value("${news.api.url}") String newsApiUrl, AesConfig aesConfig, AppConfig appConfig, RestTemplate restTemplate) {
+        this.newsApiUrl = newsApiUrl;
         this.aesConfig = aesConfig;
         this.appConfig = appConfig;
         this.restTemplate = restTemplate;
     }
 
+    @Override
     @Cacheable("articles")
     public NewsResponse getNews(String keyword) {
+        validateKeyword(keyword);
 
-        List<Article> articleList = new ArrayList<>();
+        if (isOfflineMode()) {
+            return filterArticlesByKeyword(keyword, ExampleArticles.EXAMPLE_ARTICLES);
+        }
 
         try {
-            validateKeyword(keyword);
-            if ("offline".equalsIgnoreCase(appConfig.getMode())) {
-                return filterArticlesByKeyword(keyword, ExampleArticles.EXAMPLE_ARTICLES);
-            }
+            log.info("Fetching news for keyword: {}", keyword);
+            String url = buildApiUrl(keyword);
 
-            log.error("inside the getNews() method with keyword {}", keyword);
-
-            String url = NEWS_API_URL.replace("{apiKey}", aesConfig.getDecryptedApiKey()).replace("{keyword}", keyword);
             ResponseEntity<NewsResponse> response = restTemplate.exchange(
-                    url, HttpMethod.GET, null,
-                    new ParameterizedTypeReference<>() {
-                    }
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<>() {}
             );
-            if(HttpStatus.OK.equals(response.getStatusCode())) {
-                NewsResponse newsResponse = response.getBody();
-                checkContent(newsResponse.getArticles());
-                articleList = newsResponse.getArticles();
-            }
-        } catch (InvalidKeywordException | NoContentException exception) {
-            log.error("Exception Occurred while fetching news with keyword : {}", keyword);
-            throw exception;
-        }
-        catch (Exception exception) {
-            log.error("Exception Occurred while fetching news with keyword : {}", keyword);
-            throw new RuntimeException("Internal server error: {}",exception);
-        }
 
-        return filterArticlesByKeyword(keyword,articleList);
+            if (response.getStatusCode() == HttpStatus.OK) {
+                List<Article> articles = response.getBody().getArticles();
+                checkContent(articles);
+                return filterArticlesByKeyword(keyword, articles);
+            }
+            throw new NoContentException("No news found for the given keyword");
+        } catch (Exception ex) {
+            log.error("Error fetching news for keyword: {}", keyword, ex);
+            throw new RuntimeException("Internal server error", ex);
+        }
+    }
+
+    private boolean isOfflineMode() {
+        return "offline".equalsIgnoreCase(appConfig.getMode());
+    }
+
+    private String buildApiUrl(String keyword) throws Exception {
+        return newsApiUrl.replace("{apiKey}", aesConfig.getDecryptedApiKey())
+                .replace("{keyword}", keyword);
+    }
+
+    private void validateKeyword(String keyword) {
+        if (keyword == null || !keyword.matches("^[a-zA-Z0-9]+$")) {
+            throw new InvalidKeywordException("Keyword must only contain letters and numbers and cannot be null");
+        }
     }
 
     private void checkContent(List<Article> articles) {
-        if(CollectionUtils.isEmpty(articles)){
+        if (CollectionUtils.isEmpty(articles)) {
             throw new NoContentException("No news found for the given keyword");
         }
     }
 
-    private void validateKeyword(String keyword) {
-        if (!keyword.matches("^[a-zA-Z0-9]+$")|| StringUtil.isNullOrEmpty(keyword)) {
-            throw new InvalidKeywordException("Keyword must only contain letters and numbers and cannot be null");
-        }
-    }
+    @Override
     public Map<String, Object> getGroupedNews(String keyword, int interval, String unit) {
         NewsResponse newsResponse = getNews(keyword);
-        List<Article> filteredArticles = filterArticlesByKeyword(keyword, newsResponse.getArticles()).getArticles();
+        List<Article> filteredArticles = newsResponse.getArticles();
         return groupArticlesByInterval(filteredArticles, interval, unit);
     }
 
@@ -105,6 +103,7 @@ public class NewsServiceImpl implements NewsService {
                 .filter(article -> article.getTitle().toLowerCase().contains(keyword.toLowerCase()) ||
                         article.getDescription().toLowerCase().contains(keyword.toLowerCase()))
                 .collect(Collectors.toList());
+
         checkContent(filteredArticles);
         return new NewsResponse("ok", filteredArticles.size(), filteredArticles);
     }

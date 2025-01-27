@@ -19,7 +19,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
-
 import java.util.List;
 import java.util.Map;
 
@@ -59,7 +58,6 @@ public class NewsServiceImplTests {
 
         when(appConfig.getMode()).thenReturn("online");
         when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
-
         when(restTemplate.exchange(
                 eq(url),
                 eq(HttpMethod.GET),
@@ -67,13 +65,13 @@ public class NewsServiceImplTests {
                 eq(new ParameterizedTypeReference<NewsResponse>() {})
         )).thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
 
-
         // Act
         NewsResponse response = newsService.getNews(keyword);
 
         // Assert
         assertNotNull(response);
         assertEquals("ok", response.getStatus());
+        assertEquals(3, response.getTotalResults());
         verify(restTemplate).exchange(eq(url), eq(HttpMethod.GET), isNull(), eq(new ParameterizedTypeReference<NewsResponse>() {}));
     }
 
@@ -84,7 +82,6 @@ public class NewsServiceImplTests {
 
         // Act & Assert
         InvalidKeywordException exception = assertThrows(InvalidKeywordException.class, () -> newsService.getNews(keyword));
-
         assertEquals("Keyword must only contain letters and numbers and cannot be null", exception.getMessage());
     }
 
@@ -100,6 +97,7 @@ public class NewsServiceImplTests {
         // Assert
         assertNotNull(response);
         assertEquals("ok", response.getStatus());
+        assertFalse(response.getArticles().isEmpty());
     }
 
     @Test
@@ -110,8 +108,7 @@ public class NewsServiceImplTests {
 
         // Act & Assert
         RuntimeException exception = assertThrows(RuntimeException.class, () -> newsService.getNews(keyword));
-
-        assertEquals("Internal server error: {}", exception.getMessage());
+        assertEquals("Internal server error", exception.getMessage());
     }
 
     @Test
@@ -121,6 +118,7 @@ public class NewsServiceImplTests {
         int interval = 12;
         String unit = "hours";
         NewsResponse mockResponse = new NewsResponse("ok", 3, ExampleArticles.EXAMPLE_ARTICLES);
+
         when(appConfig.getMode()).thenReturn("online");
         when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
         when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(), eq(new ParameterizedTypeReference<NewsResponse>() {})))

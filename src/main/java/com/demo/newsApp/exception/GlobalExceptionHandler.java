@@ -2,12 +2,12 @@ package com.demo.newsApp.exception;
 
 import com.demo.newsApp.model.ErrorResponse;
 import io.swagger.v3.oas.annotations.Hidden;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.WebRequest;
 
 import java.time.LocalDateTime;
 
@@ -17,35 +17,41 @@ import java.time.LocalDateTime;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidKeywordException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidKeywordException(InvalidKeywordException ex, WebRequest request) {
-        ErrorResponse errorResponse = new ErrorResponse();
-        errorResponse.setTimestamp(LocalDateTime.now());
-        errorResponse.setStatus(HttpStatus.BAD_REQUEST.value());
-        errorResponse.setError("Bad Request");
-        errorResponse.setMessage(ex.getMessage()); // Custom error message
-        errorResponse.setPath(request.getDescription(false).replace("uri=", "")); // Dynamically set the path
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    public ResponseEntity<ErrorResponse> handleInvalidKeywordException(InvalidKeywordException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+                new ErrorResponse(
+                        LocalDateTime.now(),
+                        HttpStatus.BAD_REQUEST.value(),
+                        "Invalid Keyword",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                )
+        );
     }
 
     @ExceptionHandler(NoContentException.class)
-    public ResponseEntity<ErrorResponse> handleNoContentException(NoContentException ex, WebRequest request) {
-        ErrorResponse errorResponse = new ErrorResponse();
-        errorResponse.setTimestamp(LocalDateTime.now());
-        errorResponse.setStatus(HttpStatus.NO_CONTENT.value());
-        errorResponse.setError("No content");
-        errorResponse.setMessage(ex.getMessage()); // Custom error message
-        errorResponse.setPath(request.getDescription(false).replace("uri=", "")); // Dynamically set the path
-        return new ResponseEntity<>(errorResponse, HttpStatus.NO_CONTENT);
+    public ResponseEntity<ErrorResponse> handleNoContentException(NoContentException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).body(
+                new ErrorResponse(
+                        LocalDateTime.now(),
+                        HttpStatus.NO_CONTENT.value(),
+                        "No Content",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                )
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGenericExceptions(Exception ex, WebRequest request) {
-        ErrorResponse errorResponse = new ErrorResponse();
-        errorResponse.setTimestamp(LocalDateTime.now());
-        errorResponse.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-        errorResponse.setError("Internal Server Error");
-        errorResponse.setMessage("An unexpected error occurred: " + ex.getMessage());
-        errorResponse.setPath(request.getDescription(false).replace("uri=", "")); // Dynamically set the path
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    public ResponseEntity<ErrorResponse> handleGenericExceptions(Exception ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                new ErrorResponse(
+                        LocalDateTime.now(),
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        "Internal Server Error",
+                        "An unexpected error occurred.",
+                        request.getRequestURI()
+                )
+        );
     }
 }
