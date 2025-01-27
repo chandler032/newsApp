@@ -17,6 +17,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.cache.CacheManager;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
@@ -37,6 +38,9 @@ public class NewsServiceImplTests {
     @Mock
     private AppConfig appConfig;
 
+    @Mock
+    private CacheManager cacheManager;  // Mocking CacheManager to verify cache eviction
+
     @InjectMocks
     private NewsServiceImpl newsService;
 
@@ -46,7 +50,8 @@ public class NewsServiceImplTests {
                 "http://example.com/news?apiKey={apiKey}&keyword={keyword}",
                 aesConfig,
                 appConfig,
-                restTemplate);
+                restTemplate,
+                cacheManager);
     }
 
     @Test
@@ -76,13 +81,45 @@ public class NewsServiceImplTests {
     }
 
     @Test
+    public void getNews_shouldReturnCachedDataForSubsequentCalls() throws Exception {
+        // Arrange
+        String keyword = "apple";
+        NewsResponse mockResponse = new NewsResponse("ok", 3, ExampleArticles.EXAMPLE_ARTICLES);
+
+        // Simulating the first call to cache the response
+        when(appConfig.getMode()).thenReturn("online");
+        when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                isNull(),
+                eq(new ParameterizedTypeReference<NewsResponse>() {})
+        )).thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
+
+        // First call (Cache miss)
+        NewsResponse firstResponse = newsService.getNews(keyword);
+
+        // Second call (Cache hit)
+        NewsResponse secondResponse = newsService.getNews(keyword);
+
+        // Assert
+        assertNotNull(firstResponse);
+        assertEquals("ok", firstResponse.getStatus());
+        assertEquals(3, firstResponse.getTotalResults());
+
+        assertNotNull(secondResponse);
+        assertEquals("ok", secondResponse.getStatus());
+        assertEquals(3, secondResponse.getTotalResults());
+    }
+
+    @Test
     public void getNews_shouldThrowInvalidKeywordExceptionForInvalidKeyword() {
         // Arrange
         String keyword = "invalid!";
 
         // Act & Assert
         InvalidKeywordException exception = assertThrows(InvalidKeywordException.class, () -> newsService.getNews(keyword));
-        assertEquals("Keyword must only contain letters and numbers and cannot be null", exception.getMessage());
+        assertEquals("Keyword must only contain letters and numbers and cannot be null.", exception.getMessage());
     }
 
     @Test
@@ -108,7 +145,7 @@ public class NewsServiceImplTests {
 
         // Act & Assert
         RuntimeException exception = assertThrows(RuntimeException.class, () -> newsService.getNews(keyword));
-        assertEquals("Internal server error", exception.getMessage());
+        assertEquals("No news articles available for the given keyword.", exception.getMessage());
     }
 
     @Test
@@ -155,7 +192,7 @@ public class NewsServiceImplTests {
         // Arrange
         List<Article> articles = List.of(
                 new Article("Example Title 1", "Example Description 1", "http://example.com/1", "2024-01-01T00:00:00Z"),
-                new Article("Example Title 2", "Example Description 2", "http://example.com/2", "2024-01-01T12:00:00Z")
+                new Article("Example Tile 2", "Example Description 2", "http://example.com/2", "2024-01-01T12:00:00Z")
         );
         int interval = 12;
         String unit = "hours";

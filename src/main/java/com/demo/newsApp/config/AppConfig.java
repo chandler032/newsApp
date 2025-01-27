@@ -10,11 +10,6 @@ import org.springframework.web.client.RestTemplate;
 public class AppConfig {
     private String mode;
 
-    @Bean
-    public RestTemplate restTemplate() {
-        return new RestTemplate();
-    }
-
     public String getMode() {
         return mode;
     }

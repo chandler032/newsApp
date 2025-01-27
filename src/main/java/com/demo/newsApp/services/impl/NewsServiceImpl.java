@@ -11,6 +11,9 @@ import com.demo.newsApp.util.ExampleArticles;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -26,6 +29,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@EnableCaching
 @Log4j2
 public class NewsServiceImpl implements NewsService {
 
@@ -33,40 +37,59 @@ public class NewsServiceImpl implements NewsService {
     private final AesConfig aesConfig;
     private final AppConfig appConfig;
     private final RestTemplate restTemplate;
+    private final CacheManager cacheManager;
 
-    public NewsServiceImpl(@Value("${news.api.url}") String newsApiUrl, AesConfig aesConfig, AppConfig appConfig, RestTemplate restTemplate) {
+    public NewsServiceImpl(@Value("${news.api.url}") String newsApiUrl, AesConfig aesConfig, AppConfig appConfig, RestTemplate restTemplate, CacheManager cacheManager) {
         this.newsApiUrl = newsApiUrl;
         this.aesConfig = aesConfig;
         this.appConfig = appConfig;
         this.restTemplate = restTemplate;
+        this.cacheManager = cacheManager;
     }
 
     @Override
-    @Cacheable("articles")
+    @Cacheable(value = "articles", key = "#keyword", unless = "#result == null")
     public NewsResponse getNews(String keyword) {
+
         validateKeyword(keyword);
 
         if (isOfflineMode()) {
+            log.info("Application is in offline mode. Fetching example articles.");
             return filterArticlesByKeyword(keyword, ExampleArticles.EXAMPLE_ARTICLES);
         }
 
         try {
-            log.info("Fetching news for keyword: {}", keyword);
+            log.info("Fetching news articles for keyword: {}", keyword);
             String url = buildApiUrl(keyword);
 
             ResponseEntity<NewsResponse> response = restTemplate.exchange(
-                    url, HttpMethod.GET, null, new ParameterizedTypeReference<>() {}
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<>() {
+                    }
             );
 
             if (response.getStatusCode() == HttpStatus.OK) {
                 List<Article> articles = response.getBody().getArticles();
                 checkContent(articles);
+
+                // Cache the articles for fallback
+                cacheArticles(keyword, articles);
                 return filterArticlesByKeyword(keyword, articles);
             }
-            throw new NoContentException("No news found for the given keyword");
-        } catch (Exception ex) {
-            log.error("Error fetching news for keyword: {}", keyword, ex);
-            throw new RuntimeException("Internal server error", ex);
+            throw new NoContentException("No news articles found for the given keyword.");
+        }catch(NoContentException ex){
+            throw  ex;
+        }
+        catch (Exception ex) {
+            log.error("Error fetching news articles for keyword: {}. Falling back to cache.", keyword, ex);
+
+            // Fallback to cache
+            List<Article> cachedArticles = getCachedArticles(keyword);
+            if (!CollectionUtils.isEmpty(cachedArticles)) {
+                log.info("Returning cached articles for keyword: {}", keyword);
+                return filterArticlesByKeyword(keyword, cachedArticles);
+            }
+            // If cache is also empty, throw an error
+            throw new NoContentException("No news articles available for the given keyword.");
         }
     }
 
@@ -81,13 +104,30 @@ public class NewsServiceImpl implements NewsService {
 
     private void validateKeyword(String keyword) {
         if (keyword == null || !keyword.matches("^[a-zA-Z0-9]+$")) {
-            throw new InvalidKeywordException("Keyword must only contain letters and numbers and cannot be null");
+            throw new InvalidKeywordException("Keyword must only contain letters and numbers and cannot be null.");
         }
     }
 
     private void checkContent(List<Article> articles) {
         if (CollectionUtils.isEmpty(articles)) {
-            throw new NoContentException("No news found for the given keyword");
+            throw new NoContentException("No news articles found for the given keyword.");
+        }
+    }
+
+    private List<Article> getCachedArticles(String keyword) {
+        CaffeineCache cache = (CaffeineCache) cacheManager.getCache("articles");
+        if (null != cache  && null != cache.get(keyword)) {
+            List<Article> articles =(List<Article>) cache.get(keyword).get();
+
+            return null !=articles && !CollectionUtils.isEmpty(articles) ? articles :Collections.emptyList();
+        }
+        return Collections.emptyList();
+    }
+
+    private void cacheArticles(String keyword, List<Article> articles) {
+        CaffeineCache cache = (CaffeineCache) cacheManager.getCache("articles");
+        if (null != cache ) {
+            cache.put(keyword, articles);
         }
     }
 

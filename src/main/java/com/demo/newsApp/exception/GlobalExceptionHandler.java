@@ -28,7 +28,6 @@ public class GlobalExceptionHandler {
                 )
         );
     }
-
     @ExceptionHandler(NoContentException.class)
     public ResponseEntity<ErrorResponse> handleNoContentException(NoContentException ex, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.NO_CONTENT).body(
