@@ -32,4 +32,21 @@ public class ExampleArticles {
                 throw new IllegalArgumentException("Unsupported unit: " + unit);
         }
     }
+
+    public static LocalDateTime calculateStartTime(LocalDateTime endTime, int interval, String unit) {
+        switch (unit.toLowerCase()) {
+            case "hours":
+                return endTime.minusHours(interval);
+            case "days":
+                return endTime.minusDays(interval);
+            case "weeks":
+                return endTime.minusWeeks(interval);
+            case "months":
+                return endTime.minusMonths(interval);
+            case "years":
+                return endTime.minusYears(interval);
+            default:
+                throw new IllegalArgumentException("Unsupported time unit: " + unit);
+        }
+    }
 }

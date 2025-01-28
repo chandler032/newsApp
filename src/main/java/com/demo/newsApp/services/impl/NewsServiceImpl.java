@@ -47,7 +47,14 @@ public class NewsServiceImpl implements NewsService {
         this.cacheManager = cacheManager;
     }
 
+
     @Override
+    public Map<String, Object> getGroupedNews(String keyword, int interval, String unit) {
+        NewsResponse newsResponse = getNews(keyword);
+        List<Article> filteredArticles = newsResponse.getArticles();
+        return groupArticlesByLastInterval(filteredArticles, interval, unit);
+    }
+
     @Cacheable(value = "articles", key = "#keyword", unless = "#result == null")
     public NewsResponse getNews(String keyword) {
 
@@ -76,10 +83,9 @@ public class NewsServiceImpl implements NewsService {
                 return filterArticlesByKeyword(keyword, articles);
             }
             throw new NoContentException("No news articles found for the given keyword.");
-        }catch(NoContentException ex){
-            throw  ex;
-        }
-        catch (Exception ex) {
+        } catch (NoContentException ex) {
+            throw ex;
+        } catch (Exception ex) {
             log.error("Error fetching news articles for keyword: {}. Falling back to cache.", keyword, ex);
 
             // Fallback to cache
@@ -116,27 +122,21 @@ public class NewsServiceImpl implements NewsService {
 
     private List<Article> getCachedArticles(String keyword) {
         CaffeineCache cache = (CaffeineCache) cacheManager.getCache("articles");
-        if (null != cache  && null != cache.get(keyword)) {
-            List<Article> articles =(List<Article>) cache.get(keyword).get();
+        if (null != cache && null != cache.get(keyword)) {
+            List<Article> articles = (List<Article>) cache.get(keyword).get();
 
-            return null !=articles && !CollectionUtils.isEmpty(articles) ? articles :Collections.emptyList();
+            return null != articles && !CollectionUtils.isEmpty(articles) ? articles : Collections.emptyList();
         }
         return Collections.emptyList();
     }
 
     private void cacheArticles(String keyword, List<Article> articles) {
         CaffeineCache cache = (CaffeineCache) cacheManager.getCache("articles");
-        if (null != cache ) {
+        if (null != cache) {
             cache.put(keyword, articles);
         }
     }
 
-    @Override
-    public Map<String, Object> getGroupedNews(String keyword, int interval, String unit) {
-        NewsResponse newsResponse = getNews(keyword);
-        List<Article> filteredArticles = newsResponse.getArticles();
-        return groupArticlesByInterval(filteredArticles, interval, unit);
-    }
 
     public NewsResponse filterArticlesByKeyword(String keyword, List<Article> articles) {
         List<Article> filteredArticles = articles.stream()
@@ -148,7 +148,8 @@ public class NewsServiceImpl implements NewsService {
         return new NewsResponse("ok", filteredArticles.size(), filteredArticles);
     }
 
-    public Map<String, Object> groupArticlesByInterval(List<Article> articles, int interval, String unit) {
+
+    public Map<String, Object> groupArticlesByLastInterval(List<Article> articles, int interval, String unit) {
         Map<String, List<Article>> groupedArticles = new HashMap<>();
 
         for (Article article : articles) {
@@ -160,6 +161,53 @@ public class NewsServiceImpl implements NewsService {
 
         Map<String, Object> response = new HashMap<>();
         groupedArticles.forEach((key, value) -> response.put(key, Map.of("count", value.size(), "articles", value)));
+        return getLastIntervalsData(response, interval);
+    }
+
+    public Map<String, Object> getLastIntervalsData(Map<String, Object> groupedData, int n) {
+        return groupedData.entrySet().stream()
+                .sorted((entry1, entry2) -> entry2.getKey().compareTo(entry1.getKey()))
+                .limit(n)
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (oldValue, newValue) -> oldValue,
+                        LinkedHashMap::new
+                ));
+    }
+
+    public Map<String, Object> groupArticlesByInterval(List<Article> articles, int interval, String unit) {
+        Map<String, List<Article>> groupedArticles = new HashMap<>();
+
+        // Determine the range (start and end times)
+        Instant now = Instant.now();
+        LocalDateTime endTime = now.atZone(ZoneId.systemDefault()).toLocalDateTime();
+        LocalDateTime startTime = ExampleArticles.calculateStartTime(endTime, interval, unit);
+
+        for (Article article : articles) {
+            Instant publishedAtInstant = Instant.parse(article.getPublishedAt());
+            LocalDateTime publishedAt = publishedAtInstant.atZone(ZoneId.systemDefault()).toLocalDateTime();
+
+            // Exclude articles outside the desired interval range
+            if (publishedAt.isBefore(startTime) || publishedAt.isAfter(endTime)) {
+                continue;
+            }
+
+            // Group articles by interval using the provided logic
+            String groupKey = ExampleArticles.getGroupKey(publishedAt, interval, unit);
+            groupedArticles.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(article);
+        }
+
+        if (CollectionUtils.isEmpty(groupedArticles)) {
+            throw new NoContentException("No news articles found for the given keyword.");
+        }
+
+        // Create response map
+        Map<String, Object> response = new HashMap<>();
+        groupedArticles.forEach((key, value) ->
+                response.put(key, Map.of("count", value.size(), "articles", value))
+        );
+
         return response;
     }
 }

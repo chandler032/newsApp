@@ -4,7 +4,6 @@ import com.demo.newsApp.config.AppConfig;
 import com.demo.newsApp.exception.InvalidKeywordException;
 import com.demo.newsApp.model.Article;
 import com.demo.newsApp.model.ErrorResponse;
-import com.demo.newsApp.model.NewsResponse;
 import com.demo.newsApp.model.Unit;
 import com.demo.newsApp.services.NewsService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,45 +41,6 @@ public class NewsControllerTests {
     @Mock
     private HttpServletRequest request;
 
-    // Test for searchNews - Valid Keyword
-    @Test
-    public void searchNews_shouldReturnNewsResponse() {
-        String keyword = "validKeyword";
-        NewsResponse expectedResponse = new NewsResponse("ok", 10, List.of(new Article()));
-        when(newsService.getNews(keyword)).thenReturn(expectedResponse);
-
-        ResponseEntity<NewsResponse> response = (ResponseEntity<NewsResponse>) newsController.searchNews(keyword, request);
-
-        assertEquals(200, response.getStatusCodeValue());
-        assertEquals(expectedResponse, response.getBody());
-        verify(newsService).getNews(keyword);
-    }
-
-    // Test for searchNews - Invalid Keyword Exception
-    @Test
-    public void searchNews_shouldHandleInvalidKeywordException() {
-        String keyword = "invalid!";
-        when(newsService.getNews(keyword)).thenThrow(new InvalidKeywordException("Invalid keyword"));
-
-        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.searchNews(keyword, request);
-
-        assertEquals(400, response.getStatusCodeValue());
-        assertEquals("Invalid Keyword", response.getBody().getError());
-        verify(newsService).getNews(keyword);
-    }
-
-    // Test for searchNews - Unexpected Exception
-    @Test
-    public void searchNews_shouldHandleUnexpectedException() {
-        String keyword = "validKeyword";
-        when(newsService.getNews(keyword)).thenThrow(new RuntimeException("Unexpected error"));
-
-        ResponseEntity<ErrorResponse> response = (ResponseEntity<ErrorResponse>) newsController.searchNews(keyword, request);
-
-        assertEquals(500, response.getStatusCodeValue());
-        assertEquals("Internal Server Error", response.getBody().getError());
-        verify(newsService).getNews(keyword);
-    }
 
     // Test for toggleMode - Set to Online
     @Test

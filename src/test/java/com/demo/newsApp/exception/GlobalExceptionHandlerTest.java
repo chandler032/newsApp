@@ -2,6 +2,7 @@ package com.demo.newsApp.exception;
 
 import com.demo.newsApp.model.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +61,25 @@ public class GlobalExceptionHandlerTest {
         assertEquals("No Content", response.getBody().getError());
         assertEquals("/api/news", response.getBody().getPath());
     }
+
+    @Test
+    public void testHandleConstraintViolationException() {
+        // Arrange
+        ConstraintViolationException ex = new ConstraintViolationException("Invalid input parameter", null);
+        when(httpServletRequest.getRequestURI()).thenReturn("/api/example");
+
+        // Act
+        ResponseEntity<ErrorResponse> response = globalExceptionHandler.handleConstraintViolationException(ex, httpServletRequest);
+
+        // Assert
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("No Content", response.getBody().getError());
+        assertEquals("Invalid input parameter", response.getBody().getMessage());
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getBody().getStatus());
+        assertEquals("/api/example", response.getBody().getPath());
+        assertNotNull(response.getBody().getTimestamp());
+    }
+
 
     @Test
     public void testHandleGenericExceptions() {

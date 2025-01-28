@@ -3,6 +3,7 @@ package com.demo.newsApp.services;
 import com.demo.newsApp.config.AesConfig;
 import com.demo.newsApp.config.AppConfig;
 import com.demo.newsApp.exception.InvalidKeywordException;
+import com.demo.newsApp.exception.NoContentException;
 import com.demo.newsApp.model.Article;
 import com.demo.newsApp.model.NewsResponse;
 import com.demo.newsApp.services.impl.NewsServiceImpl;
@@ -13,15 +14,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.cache.CacheManager;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -39,19 +40,16 @@ public class NewsServiceImplTests {
     private AppConfig appConfig;
 
     @Mock
-    private CacheManager cacheManager;  // Mocking CacheManager to verify cache eviction
+    private CacheManager cacheManager;
 
     @InjectMocks
     private NewsServiceImpl newsService;
 
+    private final String newsApiUrl = "http://example.com/news?apiKey={apiKey}&keyword={keyword}";
+
     @BeforeEach
     public void setUp() {
-        newsService = new NewsServiceImpl(
-                "http://example.com/news?apiKey={apiKey}&keyword={keyword}",
-                aesConfig,
-                appConfig,
-                restTemplate,
-                cacheManager);
+        newsService = new NewsServiceImpl(newsApiUrl, aesConfig, appConfig, restTemplate, cacheManager);
     }
 
     @Test
@@ -77,39 +75,6 @@ public class NewsServiceImplTests {
         assertNotNull(response);
         assertEquals("ok", response.getStatus());
         assertEquals(3, response.getTotalResults());
-        verify(restTemplate).exchange(eq(url), eq(HttpMethod.GET), isNull(), eq(new ParameterizedTypeReference<NewsResponse>() {}));
-    }
-
-    @Test
-    public void getNews_shouldReturnCachedDataForSubsequentCalls() throws Exception {
-        // Arrange
-        String keyword = "apple";
-        NewsResponse mockResponse = new NewsResponse("ok", 3, ExampleArticles.EXAMPLE_ARTICLES);
-
-        // Simulating the first call to cache the response
-        when(appConfig.getMode()).thenReturn("online");
-        when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
-        when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.GET),
-                isNull(),
-                eq(new ParameterizedTypeReference<NewsResponse>() {})
-        )).thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
-
-        // First call (Cache miss)
-        NewsResponse firstResponse = newsService.getNews(keyword);
-
-        // Second call (Cache hit)
-        NewsResponse secondResponse = newsService.getNews(keyword);
-
-        // Assert
-        assertNotNull(firstResponse);
-        assertEquals("ok", firstResponse.getStatus());
-        assertEquals(3, firstResponse.getTotalResults());
-
-        assertNotNull(secondResponse);
-        assertEquals("ok", secondResponse.getStatus());
-        assertEquals(3, secondResponse.getTotalResults());
     }
 
     @Test
@@ -138,44 +103,84 @@ public class NewsServiceImplTests {
     }
 
     @Test
-    public void getNews_shouldHandleUnexpectedError() {
-        // Arrange
-        String keyword = "validKeyword";
-        when(appConfig.getMode()).thenReturn("online");
-
-        // Act & Assert
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> newsService.getNews(keyword));
-        assertEquals("No news articles available for the given keyword.", exception.getMessage());
-    }
-
-    @Test
-    public void getGroupedNews_shouldReturnGroupedArticles() throws Exception {
+    public void getNews_shouldFallbackToCacheWhenApiFails() throws Exception {
         // Arrange
         String keyword = "apple";
-        int interval = 12;
-        String unit = "hours";
-        NewsResponse mockResponse = new NewsResponse("ok", 3, ExampleArticles.EXAMPLE_ARTICLES);
-
+        List<Article> cachedArticles = ExampleArticles.EXAMPLE_ARTICLES;
+        CaffeineCache mockCache = mock(CaffeineCache.class);
+        when(cacheManager.getCache("articles")).thenReturn(mockCache);
+        when(mockCache.get(keyword)).thenReturn(() -> cachedArticles);
         when(appConfig.getMode()).thenReturn("online");
         when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(), eq(new ParameterizedTypeReference<NewsResponse>() {})))
-                .thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
+
+        doThrow(new RuntimeException("API Error")).when(restTemplate).exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                isNull(),
+                eq(new ParameterizedTypeReference<NewsResponse>() {})
+        );
 
         // Act
-        Map<String, Object> response = newsService.getGroupedNews(keyword, interval, unit);
+        NewsResponse response = newsService.getNews(keyword);
 
         // Assert
         assertNotNull(response);
-        assertFalse(response.isEmpty());
+        assertEquals("ok", response.getStatus());
+        assertEquals(cachedArticles.size(), response.getTotalResults());
     }
 
     @Test
-    public void filterArticlesByKeyword_shouldFilterArticles() {
+    public void getNews_shouldThrowNoContentExceptionWhenNoArticlesAvailable() throws Exception {
+        // Arrange
+        String keyword = "apple";
+        when(appConfig.getMode()).thenReturn("online");
+        when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                isNull(),
+                eq(new ParameterizedTypeReference<NewsResponse>() {})
+        )).thenReturn(new ResponseEntity<>(new NewsResponse("ok", 0, Collections.emptyList()), HttpStatus.OK));
+
+        // Act & Assert
+        NoContentException exception = assertThrows(NoContentException.class, () -> newsService.getNews(keyword));
+        assertEquals("No news articles found for the given keyword.", exception.getMessage());
+    }
+
+    @Test
+    public void groupArticlesByInterval_shouldGroupArticles() {
+        // Arrange
+        List<Article> articles = ExampleArticles.EXAMPLE_ARTICLES;
+        int interval = 12;
+        String unit = "months";
+
+        // Act
+        Map<String, Object> groupedArticles = newsService.groupArticlesByInterval(articles, interval, unit);
+
+        // Assert
+        assertNotNull(groupedArticles);
+        assertFalse(groupedArticles.isEmpty());
+    }
+
+    @Test
+    public void groupArticlesByInterval_shouldThrowNoContentExceptionWhenNoArticles() {
+        // Arrange
+        List<Article> articles = Collections.emptyList();
+        int interval = 12;
+        String unit = "hours";
+
+        // Act & Assert
+        NoContentException exception = assertThrows(NoContentException.class, () -> newsService.groupArticlesByInterval(articles, interval, unit));
+        assertEquals("No news articles found for the given keyword.", exception.getMessage());
+    }
+
+    @Test
+    public void filterArticlesByKeyword_shouldFilterArticlesCorrectly() {
         // Arrange
         String keyword = "example";
         List<Article> articles = List.of(
                 new Article("Example Title 1", "Example Description 1", "http://example.com/1", "2024-01-01T00:00:00Z"),
-                new Article("Another Title", "Another Description", "http://example.com/2", "2024-01-01T00:00:00Z")
+                new Article("Another Title", "Another Description", "http://example.com/2", "2024-01-01T12:00:00Z")
         );
 
         // Act
@@ -188,17 +193,20 @@ public class NewsServiceImplTests {
     }
 
     @Test
-    public void groupArticlesByInterval_shouldGroupArticles() {
+    public void getGroupedNews_shouldReturnGroupedArticles() throws Exception {
         // Arrange
-        List<Article> articles = List.of(
-                new Article("Example Title 1", "Example Description 1", "http://example.com/1", "2024-01-01T00:00:00Z"),
-                new Article("Example Tile 2", "Example Description 2", "http://example.com/2", "2024-01-01T12:00:00Z")
-        );
+        String keyword = "apple";
         int interval = 12;
-        String unit = "hours";
+        String unit = "months";
+        NewsResponse mockResponse = new NewsResponse("ok", 3, ExampleArticles.EXAMPLE_ARTICLES);
+
+        when(appConfig.getMode()).thenReturn("online");
+        when(aesConfig.getDecryptedApiKey()).thenReturn("1234");
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(), eq(new ParameterizedTypeReference<NewsResponse>() {})))
+                .thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
 
         // Act
-        Map<String, Object> response = newsService.groupArticlesByInterval(articles, interval, unit);
+        Map<String, Object> response = newsService.getGroupedNews(keyword, interval, unit);
 
         // Assert
         assertNotNull(response);

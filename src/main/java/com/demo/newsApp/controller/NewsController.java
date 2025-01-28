@@ -13,17 +13,22 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.Min;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.CollectionUtils;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Map;
 
 @RestController
+@Validated
 @Log4j2
 @RequestMapping("/api/news")
 public class NewsController {
@@ -35,56 +40,6 @@ public class NewsController {
         this.newsService = newsService;
         this.appConfig = appConfig;
     }
-
-    @Operation(
-            summary = "Search news articles",
-            description = "Searches news articles based on the keyword."
-    )
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved news articles", content = {
-                    @Content(mediaType = "application/json", schema = @Schema(implementation = NewsResponse.class))
-            }),
-            @ApiResponse(responseCode = "400", description = "Invalid keyword provided", content = {
-                    @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))
-            }),
-            @ApiResponse(responseCode = "204", description = "No content found for the given keyword", content = @Content),
-            @ApiResponse(responseCode = "500", description = "Internal Server Error", content = {
-                    @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))
-            })
-    })
-    @GetMapping(value = "/search")
-    public ResponseEntity<?> searchNews(@RequestParam String keyword, HttpServletRequest request) {
-        try {
-            log.info("Starting news search for keyword: {}", keyword);
-            return ResponseEntity.ok(newsService.getNews(keyword));
-        } catch (InvalidKeywordException exception) {
-            log.error("Invalid keyword provided: {}", keyword, exception);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    new ErrorResponse(
-                            LocalDateTime.now(),
-                            HttpStatus.BAD_REQUEST.value(),
-                            "Invalid Keyword",
-                            exception.getMessage(),
-                            request.getRequestURI()
-                    )
-            );
-        } catch (NoContentException exception) {
-            log.error("No content found for keyword: {}", keyword, exception);
-            return ResponseEntity.status(HttpStatus.NO_CONTENT).body(null);
-        } catch (Exception ex) {
-            log.error("Unexpected error while searching for news: {}", keyword, ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    new ErrorResponse(
-                            LocalDateTime.now(),
-                            HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                            "Internal Server Error",
-                            "An unexpected error occurred.",
-                            request.getRequestURI()
-                    )
-            );
-        }
-    }
-
     @Operation(
             summary = "Group news articles",
             description = "Groups news articles by publication date into specific intervals such as minutes, hours, days, weeks, etc."
@@ -100,9 +55,10 @@ public class NewsController {
                     @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))
             })
     })
-    @GetMapping(value = "/newsGroupByInterval")
+    @GetMapping(value = "/newsGroupNewsByInterval")
     public ResponseEntity<?> getGroupedNews(@RequestParam String keyword,
-                                            @RequestParam(defaultValue = "12") int interval,
+                                            @RequestParam(defaultValue = "12") @Min(value = 1, message = "Value must be positive")
+                                            int interval,
                                             @RequestParam(defaultValue = "hours") Unit unit,
                                             HttpServletRequest request) {
         try {
